@@ -1,13 +1,27 @@
 import { LitElement, css, html } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { map } from "lit/directives/map.js";
+import { when } from "lit/directives/when.js";
+
+type TODO = {
+  id: string;
+  isCompleted: boolean;
+  value: string;
+};
 
 class Todo {
-  id = crypto.randomUUID();
+  id: string = crypto.randomUUID();
   isCompleted = false;
 
   constructor(public value: string) {
     this.value = value;
+  }
+
+  static from({ id, isCompleted, value }: TODO) {
+    const todo = new Todo(value);
+    todo.id = id;
+    todo.isCompleted = isCompleted;
+    return todo;
   }
 
   clone() {
@@ -29,49 +43,52 @@ export class MyApp extends LitElement {
   @state()
   showCompleted = false;
 
-  toggleCompleted(event: Event) {
-    this.showCompleted = (event.target as HTMLInputElement).checked;
+  @state()
+  todos!: Todo[];
+
+  connectedCallback() {
+    super.connectedCallback();
+    const todos = window.localStorage.getItem("todos");
+    if (!todos) {
+      this.todos = [];
+    } else {
+      this.todos = JSON.parse(todos).map(Todo.from);
+    }
   }
 
   render() {
     return html`
       <label>
-        <input type="checkbox" value="true" @change=${this.toggleCompleted}></input>Show completed
+        <input type="checkbox" value="true" @change=${
+          this.toggleCompleted
+        }></input>Show completed
       </label>
-      <my-todos ?completed=${this.showCompleted}>
-      </my-todos>
+      ${
+        this.todos
+          ? html`<my-todos
+              ?completed=${this.showCompleted}
+              todos=${JSON.stringify(this.todos)}
+              @add=${this.onAdd}
+              @complete=${this.onComplete}
+            >
+            </my-todos>`
+          : ""
+      }
     `;
     // <p slot="title">TITLE</p>;
   }
 
-  static styles = css`
-    :host {
-      max-width: 1280px;
-      margin: 0 auto;
-      padding: 2rem;
-      text-align: center;
+  toggleCompleted(event: Event) {
+    this.showCompleted = (event.target as HTMLInputElement).checked;
+  }
 
-      // --color: #27b;
-    }
-  `;
-}
+  onAdd(event: CustomEvent) {
+    this.todos = [...this.todos, event.detail.todo];
+    this.#save();
+  }
 
-@customElement("my-todos")
-export class MyTodos extends LitElement {
-  @property({ attribute: "completed", type: Boolean }) // props
-  showCompleted = false;
-
-  @state() // state
-  todos: Todo[] = [new Todo("todo 1"), new Todo("todo 2")];
-
-  @query("#newTodo") //helper for sth like element ref
-  newTodo!: HTMLInputElement; // ! is needed so TS does not cry about missing initializer
-
-  completeTodo(event: Event) {
-    const id = (event.target as HTMLButtonElement).closest("li")?.dataset.todo;
-    if (!id) {
-      return;
-    }
+  onComplete(event: CustomEvent) {
+    const id = event.detail.todoId;
     this.todos = this.todos.map((todo) =>
       todo.id === id ? todo.completeClone() : todo
     );
@@ -81,6 +98,41 @@ export class MyTodos extends LitElement {
     // }
     // todo.isCompleted = true;
     // this.requestUpdate();
+    this.#save();
+  }
+
+  #save() {
+    window.localStorage.setItem("todos", JSON.stringify(this.todos));
+  }
+
+  static styles = css`
+    :host {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 2rem;
+      text-align: center;
+    }
+    // --color: #27b;
+  `;
+}
+
+@customElement("my-todos")
+export class MyTodos extends LitElement {
+  @property({ attribute: "completed", type: Boolean }) // props
+  showCompleted = false;
+
+  @property({ type: Array })
+  todos!: Todo[];
+
+  @query("#newTodo") //helper for sth like element ref
+  newTodo!: HTMLInputElement; // ! is needed so TS does not cry about missing initializer
+
+  completeTodo(event: Event) {
+    const id = (event.target as HTMLButtonElement).closest("li")?.dataset.todo;
+    if (!id) {
+      return;
+    }
+    this.dispatchEvent(new CustomEvent("complete", { detail: { todoId: id } }));
   }
 
   addTodo() {
@@ -88,9 +140,10 @@ export class MyTodos extends LitElement {
     if (!value) {
       return;
     }
-    this.todos = [...this.todos, new Todo(value)];
-    // this.todos.push(new Todo(value));
-    // this.requestUpdate();
+    this.dispatchEvent(
+      new CustomEvent("add", { detail: { todo: new Todo(value) } })
+    );
+    this.newTodo.value = "";
   }
 
   render() {
@@ -120,11 +173,14 @@ export class MyTodos extends LitElement {
                 data-todo=${todo.id}
               >
                 ${todo.value}
-                ${!todo.isCompleted
-                  ? html`<button type="button" @click=${this.completeTodo}>
+                ${when(
+                  todo.isCompleted,
+                  () => "",
+                  () =>
+                    html`<button type="button" @click=${this.completeTodo}>
                       Done
                     </button>`
-                  : ""}
+                )}
               </li>`
           )}
         </ul>
