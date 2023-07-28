@@ -150,7 +150,3 @@ declare global {
     "my-todos": MyTodos;
   }
 }
-
-// Example:
-// native https://tinyurl.com/wc-native
-// lit https://tinyurl.com/wc-lit
